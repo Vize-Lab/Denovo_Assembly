@@ -1,0 +1,71 @@
+Running Trinity from the command line in unix shell on Acropora humilis
+
+cds
+mkdir Ahum
+cd Ahum
+
+# We assembled our library from two samples of one individual which was sampled in the day and at night at different quarter of the lunar period (NM and 1Q)
+# replace these with your filenames
+export N1reads=H1NNM_1.fq
+export N2reads=H1NNM_2.fq
+
+module load fastx_toolkit
+ 
+# trimming adaptors and quality filtering (assuming TruSeq adaptors; change -a options if you have others):
+echo 'cat $R1reads | fastx_clipper -a AAAAAAAAA -a TTTTTTTTT -a AGATCGGAA -l 50 -Q33 | fastq_quality_filter -Q33 -q 20 -p 80 >r1.trim' >trims
+echo 'cat $R2reads | fastx_clipper -a AAAAAAAAA -a TTTTTTTTT -a AGATCGGAA -l 50 -Q33 | fastq_quality_filter -Q33 -q 20 -p 80 >r2.trim' >>trims
+launcher_creator.py -j trims -n trims -l trims.job
+qsub trims.job 
+
+echo 'cat $N1reads | fastx_clipper -a AAAAAAAAA -a TTTTTTTTT -a AGATCGGAA -l 50 -Q64 | fastq_quality_filter -Q64 -q 20 -p 80 >N1.trim' >trims
+echo 'cat $N2reads | fastx_clipper -a AAAAAAAAA -a TTTTTTTTT -a AGATCGGAA -l 50 -Q64 | fastq_quality_filter -Q64 -q 20 -p 80 >N2.trim' >>trims
+launcher_creator.py -t 00:00:10 -a mega2014 -j trims -n trims -l trims.job
+qsub trims.job 
+
+
+export D1reads=H1D1Q_1.fq
+export D2reads=H1D1Q_2.fq
+echo 'cat $D1reads | fastx_clipper -a AAAAAAAAA -a TTTTTTTTT -a AGATCGGAA -l 50 -Q64 | fastq_quality_filter -Q64 -q 20 -p 80 >D1.trim' >trims
+echo 'cat $D2reads | fastx_clipper -a AAAAAAAAA -a TTTTTTTTT -a AGATCGGAA -l 50 -Q64 | fastq_quality_filter -Q64 -q 20 -p 80 >D2.trim' >>trims
+launcher_creator.py -t 00:00:10 -a mega2014 -j trims -n trims -l trims.job
+qsub trims.job 
+
+# how many reads were there originally? 
+grep @FCC6MCNACXX H1D1Q_1.fastq | wc -l
+grep @FCC6MCNACXX H1D1Q_2.fastq | wc -l
+
+
+# how many reads are left? 
+grep @FCC6MCNACXX D1.trim | wc -l
+grep @FCC6MCNACXX D2.trim | wc -l
+
+grep @FCC6MCNACXX N1.trim | wc -l
+grep @FCC6MCNACXX N2.trim | wc -l
+
+# Concatenate using FLASh
+# as the reads are not strand specific the steps must be as follow:
+# merge D1 and D2 with flash, name D3
+# merge N1 and N2 with flash, name N3
+# concatanate the two outputs D3 and N3 to make DN
+# load DN into trinity 
+
+####### Running ON TACC(Lonestar) HPC ################
+# modules will likely change depending on the HPC you are using
+
+
+module swap intel gcc/4.7.1
+module load bowtie/1.1.1
+module load trinityrnaseq/r20140717
+
+
+echo 'Trinity --seqType fq --JM 750G --single merged.fq --SS_lib_type F --CPU 24' >trin
+launcher_creator.py -j trin -n trinity -l trinjob -q largemem -t 3:00:00 # Maybe 24h?
+cat trinjob | perl -pe 's/12way 12/1way 24/' > trin.job
+qsub trin.job
+
+# the resulting file is Trinity.fasta
+
+# Assess the quality of your assembly
+
+module load bioperl
+seq_stats.pl Trinity.fasta
