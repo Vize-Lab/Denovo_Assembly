@@ -1,0 +1,230 @@
+# Gene expression, trinity assembly and annotation
+# Step 2/2 - After Trinity Assembly
+
+
+#-----------------------
+# Installing RNA-seq scripts and setting up the workspace
+
+# switch to $HOME directory
+cd
+
+# make directory called bin, all your script should go in there:
+mkdir bin 
+
+# switch to bin:
+cd bin 
+
+# get the compressed scripts using wget:
+wget http://sourceforge.net/projects/tag-based-rnaseq/files/latest/download
+
+# unzip it:
+unzip iRNAseq_SAM.zip 
+
+# list the contents of the directory to make sure it worked
+ll
+chmod +x
+
+# switch to the newly generated iRNAseq_SAM directory:
+cd iRNAseq_SAM
+
+# move all the files out of here one directory level up, so they will be in ~/bin/
+mv * ../
+
+# with directory one level up (to ~/bin/):
+cd ..
+
+# list the contents:
+ll
+
+# remove unnecessary files:
+rm -rf iRNAseq_SAM*
+rm -rf __MACOSX/
+
+#--------------------------------
+# setting up working environment:
+
+# switch to root of $HOME:
+cd 
+
+# start nano editor on the file that will hold your environmental settings
+nano .profile_user 
+
+# paste these four lines:
+module load python
+module load shrimp
+module load fastx_toolkit
+export PATH="$HOME/bin/:$PATH"
+
+# make the environment changes take effect (will happen automatically next time you log in):
+source .profile_user
+
+#------------------------------
+# configuring job creator file launcher_creator.py for easier use:
+
+# switch to ~/bin/:
+cd
+cd bin
+
+# start editing launcher_creator.py with nano:
+nano launcher_creator.py
+#	under def main(): 
+#		edit the line saying 'email' to say default="[your actual email address]"
+#		edit the line saying 'allocation' to say default="mega2014"
+	ctrl-O - enter
+	ctrl-X - enter
+
+#------------------------------
+# let's check if the environment is set correctly: the programs should run from any location now
+
+# switch to $WORK folder
+cdw
+
+# try a few commands: you should see messages about their usage and/or error messages 
+# about missing arguments, but not "command not found"
+samcount.pl
+launcher_creator.py
+
+# let's check if the environment is set correctly: the programs should run from any location now
+
+#-----------------------------
+# downloading sequence data to $SCRATCH
+
+# switch to $SCRATCH folder  -that's where you can mess with a lot of files
+cds
+
+
+# download bunch of compressed sequence files
+SSSSSSSSSSSSSSSS
+SSSSSSSSSSSSSSS
+@@@@@@@@@@@@@@@
+###############
+###############
+
+#-------------------------------
+# unzipping and concatenating sequence files
+
+# cds
+
+# creating and launching a cluster job to unzip all files:
+echo 'gunzip *.gz' >gunz
+launcher_creator.py -t 1:00:00 -a iPlant-Master -j gunz -n gunz -l gunz.job
+qsub gunz.job
+
+# check status of your job (qw : in queue; r : running; nothing printed on the screen - complete) 
+qstat 
+
+
+# concatenating pairs of raw files according to the value given as Index in the file name:
+qsub concat.sh
+
+# check file length and that it is evenly divisible by four
+wc -l *.fq
+
+# sanity check: do we get exactly half the number of concatenated files?
+# count concatenated ones:
+ll [ABCD][1-6].fq | wc -l
+# count raw ones:
+ll *raw* | wc -l
+
+# make directory called Raw:
+mkdir Raw
+
+# move them all there:
+mv *raw* Raw/
+
+# look at the reads:
+head -50 F1D3Q.fq 
+
+# this little one-liner will show sequence-only:
+head -100 F1D3Q.fq | grep -E '^[ACNGT]+$'
+
+#------------------------------
+# Run FASTQC to check data quality
+mkdir fastqc_test
+# copy pwd 
+cd fastqc_test
+cp [insert pwd]/*fq
+fastqc *.fq
+
+fastqc '\*.fq$' > QC
+launcher_creator.py -t 01:00:00 -a iPlant-Master -j QC -n QC -l QC.job
+qsub QC.job
+
+# Run samstat on FASTQ files
+cd ..
+mkdir samstat_test
+cd samstat_test
+cp [insert pwd]/*fq
+samstat *.fq
+
+#------------------------------
+# adaptor and quality trimming:
+
+# creating and launching the cleaning process for all files in the same time:
+iRNAseq_trim_launch_bgi.pl '\.fq$' > clean
+launcher_creator.py -t 1:00:00 -a mega2014 -j clean -n clean -l clean.job
+qsub clean.job
+
+
+# how the job is doing?
+qstat
+
+# It is complete! I got a bunch of .trim files that are non-empty! 
+# but did the trimming really work? 
+# Use the same one-liner as before on the trimmed file to see if it is different
+# from the raw one that you looked at before:
+head -100 F1D3Q.fq.trim | grep -E '^[ACGT]+$'
+
+#--------------------------------------
+# download reference transcritpome to $WORK (that's where databases live)
+cdw
+mkdir db
+cd db
+wget https://dl.dropboxusercontent.com/u/37523721/amil_annotations_may25_2014.zip
+unzip amil_annotations_may25_2014.zip 
+rm -r __MACOSX
+
+# remembering path and filename of the reference transcriptome in TRANC shortcut:
+export TRANSC=$WORK/db/amil.fasta
+
+# go back to $SCRATCH/rnaseq
+cds
+cd rnaseq
+
+#--------------------------------------
+# mapping reads to the transcriptome with Bowtie2 - creates SAM files
+
+# Build an index of the of transcriptome
+bowtie2-build amil.fasta amil
+
+# Create a script to run Bowtie2 on all samples like the follow:
+bowtie2 --very-sensitive -x amil -U F1D3Q.fq.trim -S F1D3Q.sam
+
+# sanity check: do we get the same number of output (*.sam) files as input (*.trim) files?
+# count input files:
+ll *.trim | wc -l
+# count output files:
+ll *.sam | wc -l
+
+#---------------------------------------
+# almost done! Just two small things left:
+# generating read-counts-per gene: (again, creating a job file to do it simultaneously for all)
+
+samcount_launch.pl '\.sam' /db/amil_seq2iso.tab > sc
+launcher_creator.py -t 1:00:00 -a iPlant-Master -j sc -n sc -l sc.job
+qsub sc.job
+
+#--------------------------------------
+# Now just need to copy the result to your laptop!
+
+# open new terminal window on Mac, or WinSCP on Windows
+# navigate to the directory you want the file to be 
+# (on Mac, you can just drag the destination folder from Finder into command line to get the full path). 
+
+# copy the file from lonestar using scp (in WinSCP, just paste the path you just copied
+# into an appropriate slot (should be self-evident) and drag the allcounts.txt file
+# to your local directory):
+
+scp yourUserName@lonestar.tacc.utexas.edu:/path/you/just/copied/allcounts.txt .
+
+# DONE! Next, we will be using R to make sense of the counts
